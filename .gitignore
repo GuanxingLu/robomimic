@@ -1,3 +1,7 @@
+autogen_configs/
+wandb/
+.vscode/
+
 # pip distribution folder
 dist/
 

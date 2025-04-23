@@ -859,7 +859,7 @@ class BC_Transformer_GMM(BC_Transformer):
                 component_distribution=component_distribution,
             )
 
-        log_probs = dists.log_prob(batch["actions"])
+        log_probs = dists.log_prob(batch["actions"])    # [B, T]
 
         predictions = OrderedDict(
             log_probs=log_probs,
@@ -900,3 +900,36 @@ class BC_Transformer_GMM(BC_Transformer):
         if "policy_grad_norms" in info:
             log["Policy_Grad_Norms"] = info["policy_grad_norms"]
         return log
+
+
+class BC_Transformer_GaussinaWorldmodel(BC_Transformer):
+    """
+    BC training with a Transformer GMM policy and a Gaussian world model as encoder.
+    """
+    def _create_networks(self):
+        """
+        Creates networks and places them into @self.nets.
+        """
+        # assert self.algo_config.gaussian_world_model.enabled
+        assert self.algo_config.transformer.enabled
+
+        self.nets = nn.ModuleDict()
+        self.nets["policy"] = PolicyNets.TransformerGaussianWorldModelActorNetwork(
+            obs_shapes=self.obs_shapes,
+            goal_shapes=self.goal_shapes,
+            ac_dim=self.ac_dim,
+            num_modes=self.algo_config.gmm.num_modes,
+            min_std=self.algo_config.gmm.min_std,
+            std_activation=self.algo_config.gmm.std_activation,
+            low_noise_eval=self.algo_config.gmm.low_noise_eval,
+            encoder_kwargs=ObsUtils.obs_encoder_kwargs_from_config(self.obs_config.encoder),
+            **BaseNets.transformer_args_from_config(self.algo_config.transformer),
+        )
+        self._set_params_from_config()
+        self.nets = self.nets.float().to(self.device)
+
+    def _forward_training(self, batch, epoch=None):
+        """
+        Modify from super class to support GMM training.
+        """
+        pass

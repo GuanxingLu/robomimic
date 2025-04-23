@@ -109,6 +109,54 @@ def obs_encoder_factory(
             randomizers=randomizers,
         )
 
+    # HACK: add multi_view encoder if it exists
+    if "multi_view" in encoder_kwargs:
+        obs_shape = (3, 128, 128)
+
+        enc_kwargs = deepcopy(encoder_kwargs["multi_view"])
+        # Sanity check for kwargs in case they don't exist / are None
+        if enc_kwargs.get("core_kwargs", None) is None:
+            enc_kwargs["core_kwargs"] = {}
+        # Add in input shape info
+        enc_kwargs["core_kwargs"]["input_shape"] = obs_shape
+        # If group class is specified, then make sure corresponding kwargs only contain relevant kwargs
+        if enc_kwargs["core_class"] is not None:
+            enc_kwargs["core_kwargs"] = extract_class_init_kwargs_from_dict(
+                cls=ObsUtils.OBS_ENCODER_CORES[enc_kwargs["core_class"]],
+                dic=enc_kwargs["core_kwargs"],
+                copy=False,
+            )
+
+        # Add in input shape info
+        randomizers = []
+        obs_randomizer_class_list = enc_kwargs["obs_randomizer_class"]
+        obs_randomizer_kwargs_list = enc_kwargs["obs_randomizer_kwargs"]
+
+        if not isinstance(obs_randomizer_class_list, list):
+            obs_randomizer_class_list = [obs_randomizer_class_list]
+
+        if not isinstance(obs_randomizer_kwargs_list, list):
+            obs_randomizer_kwargs_list = [obs_randomizer_kwargs_list]
+
+        for rand_class, rand_kwargs in zip(obs_randomizer_class_list, obs_randomizer_kwargs_list):            
+            rand = None
+            if rand_class is not None:
+                rand_kwargs["input_shape"] = obs_shape
+                rand_kwargs = extract_class_init_kwargs_from_dict(
+                    cls=ObsUtils.OBS_RANDOMIZERS[rand_class],
+                    dic=rand_kwargs,
+                    copy=False,
+                )
+                rand = ObsUtils.OBS_RANDOMIZERS[rand_class](**rand_kwargs)
+            randomizers.append(rand)
+
+        enc.register_obs_key(
+            name="multi_view",
+            shape=(3, 116, 116),    # TODO: not used?
+            net_class=enc_kwargs["core_class"],
+            net_kwargs=enc_kwargs["core_kwargs"],
+            randomizers=randomizers,
+        )
     enc.make()
     return enc
 
@@ -237,13 +285,28 @@ class ObservationEncoder(Module):
         assert self._locked, "ObservationEncoder: @make has not been called yet"
 
         # ensure all modalities that the encoder handles are present
-        assert set(self.obs_shapes.keys()).issubset(obs_dict), "ObservationEncoder: {} does not contain all modalities {}".format(
-            list(obs_dict.keys()), list(self.obs_shapes.keys())
-        )
+        # assert set(self.obs_shapes.keys()).issubset(obs_dict), "ObservationEncoder: {} does not contain all modalities {}".format(
+        #     list(obs_dict.keys()), list(self.obs_shapes.keys())
+        # )
 
         # process modalities by order given by @self.obs_shapes
         feats = []
+
+        if "multi_view" in self.obs_shapes:
+            left_img = obs_dict["robot0_agentview_left_image"]
+            right_img = obs_dict["robot0_agentview_right_image"]
+            x = self.obs_nets["multi_view"](left_img, right_img)
+
+            feats.append(x)
+
         for k in self.obs_shapes:
+            # OrderedDict([('robot0_agentview_left_image', [3, 128, 128]), ('robot0_agentview_right_image', [3, 128, 128]), 
+            # ('robot0_base_pos', [3]), ('robot0_base_quat', [4]), ('robot0_base_to_eef_pos', [3]), 
+            # ('robot0_base_to_eef_quat', [4]), ('robot0_eye_in_hand_image', [3, 128, 128]), ('robot0_gripper_qpos', [2]), 
+            # ('multi_view', (3, 116, 116))])
+            if k == "multi_view":
+                continue
+
             x = obs_dict[k]
             # maybe process encoder input with randomizer
             for rand in self.obs_randomizers[k]:
@@ -269,7 +332,7 @@ class ObservationEncoder(Module):
                 feats.append(x)
 
         # concatenate all features together
-        return torch.cat(feats, dim=-1)
+        return torch.cat(feats, dim=-1) # e.g, [160, 272]
 
     def output_shape(self, input_shape=None):
         """
@@ -1091,6 +1154,9 @@ class MIMO_Transformer(Module):
                 assert inputs[obs_group][k].ndim - 2 == len(self.input_obs_group_shapes[obs_group][k])
 
         inputs = inputs.copy()
+        # dict_keys(['obs', 'goal'])
+        # dict_keys(['robot0_agentview_left_image', 'robot0_agentview_right_image', 'robot0_base_pos', 'robot0_base_quat', 
+        # 'robot0_base_to_eef_pos', 'robot0_base_to_eef_quat', 'robot0_eye_in_hand_image', 'robot0_gripper_qpos', 'pad_mask', 'lang_emb'])
 
         transformer_encoder_outputs = None
         transformer_inputs = TensorUtils.time_distributed(

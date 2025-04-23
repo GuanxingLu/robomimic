@@ -1341,6 +1341,76 @@ class TransformerGMMActorNetwork(TransformerActorNetwork):
         return msg
 
 
+# class TransformerGaussianWorldModelActorNetwork(TransformerGMMActorNetwork):
+#     """
+#     A Transformer GMM policy network that uses a Gaussian world model as encoder.
+#     """
+#     def __init__(
+#         self,
+#         obs_shapes,
+#         ac_dim,
+#         transformer_embed_dim,
+#         transformer_num_layers,
+#         transformer_num_heads,
+#         transformer_context_length,
+#         transformer_causal=True,
+#         transformer_emb_dropout=0.1,
+#         transformer_attn_dropout=0.1,
+#         transformer_block_output_dropout=0.1,
+#         transformer_sinusoidal_embedding=False,
+#         transformer_activation="gelu",
+#         transformer_nn_parameter_for_timesteps=False,
+#         num_modes=5,
+#         min_std=0.01,
+#         std_activation="softplus",
+#         low_noise_eval=True,
+#         use_tanh=False,
+#         goal_shapes=None,
+#         encoder_kwargs=None,
+#     ):
+#         # parameters specific to Gaussian World Model
+#         self.num_modes = num_modes
+#         self.min_std = min_std
+#         self.low_noise_eval = low_noise_eval
+#         self.use_tanh = use_tanh
+
+#         super(TransformerGaussianWorldModelActorNetwork, self).__init__(
+#             obs_shapes=obs_shapes,
+#             ac_dim=ac_dim,
+#             transformer_embed_dim=transformer_embed_dim,
+#             transformer_num_layers=transformer_num_layers,
+#             transformer_num_heads=transformer_num_heads,
+#             transformer_context_length=transformer_context_length,
+#             transformer_causal=transformer_causal,
+#             transformer_emb_dropout=transformer_emb_dropout,
+#             transformer_attn_dropout=transformer_attn_dropout,
+#             transformer_block_output_dropout=transformer_block_output_dropout,
+#             transformer_sinusoidal_embedding=transformer_sinusoidal_embedding,
+#             transformer_activation=transformer_activation,
+#             transformer_nn_parameter_for_timesteps=transformer_nn_parameter_for_timesteps,            
+#             encoder_kwargs=encoder_kwargs,
+#             goal_shapes=goal_shapes,
+#         )
+
+#     def forward(self, obs_dict, actions=None, goal_dict=None):
+#         """
+#         Use the VAE to encode the actions and then sample from the GMM policy.
+#         """
+#         if self._is_goal_conditioned:
+#             assert goal_dict is not None
+#             # repeat the goal observation in time to match dimension with obs_dict
+#             mod = list(obs_dict.keys())[0]
+#             goal_dict = TensorUtils.unsqueeze_expand_at(goal_dict, size=obs_dict[mod].shape[1], dim=1)
+
+#         forward_kwargs = dict(obs=obs_dict, goal=goal_dict)
+#         outputs = super(TransformerActorNetwork, self).forward(**forward_kwargs)
+
+#         # apply tanh squashing to ensure actions are in [-1, 1]
+#         outputs["action"] = torch.tanh(outputs["action"])
+
+#         return outputs["action"] # only action sequences
+
+
 class VAEActor(Module):
     """
     A VAE that models a distribution of actions conditioned on observations.

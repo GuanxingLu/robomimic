@@ -222,6 +222,9 @@ def load_dict_from_checkpoint(ckpt_path):
     if not torch.cuda.is_available():
         ckpt_dict = torch.load(ckpt_path, map_location=lambda storage, loc: storage)
     else:
+        # from robomimic.config import Config, BCConfig, BCQConfig, CQLConfig, HBCConfig, IRISConfig
+        # torch.serialization.add_safe_globals([Config, BCConfig, BCQConfig, CQLConfig, HBCConfig, IRISConfig])
+        # ckpt_dict = torch.load(ckpt_path, weights_only=True)
         ckpt_dict = torch.load(ckpt_path)
     return ckpt_dict
 

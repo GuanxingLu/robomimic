@@ -311,6 +311,9 @@ class ConfigGenerator(object):
             for path in json_paths:
                 # write python command to file
                 import robomimic
+
+                # print(robomimic.__path__[0], path)
+
                 cmd = "python {}/scripts/train.py --config {}{}\n".format(
                     robomimic.__path__[0], path,
                     " " + extra_flags if isinstance(extra_flags, str) else ""

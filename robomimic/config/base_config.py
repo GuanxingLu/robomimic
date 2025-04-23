@@ -80,6 +80,9 @@ class BaseConfig(Config):
         videos, and whether to do rollouts (and how often). This class has a default 
         implementation that usually doesn't need to be overriden.
         """
+        # Initialize experiment config section first
+        # if not hasattr(self, "experiment"):
+        #     self.experiment = Config()
 
         self.experiment.name = "test"                               # name of experiment used to make log files
         self.experiment.validate = False                            # whether to do validation or not

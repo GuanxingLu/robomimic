@@ -24,8 +24,11 @@ def get_generator(algo_name, config_file, args, algo_name_short=None):
         generated_config_dir = os.path.join(os.path.dirname(args.script), "json")
     else:
         curr_time = datetime.datetime.fromtimestamp(time.time()).strftime('%m-%d-%y-%H-%M-%S')
+        # generated_config_dir=os.path.join(
+        #     '~/', 'tmp/autogen_configs/ril', algo_name, args.env, args.mod, args.name, curr_time, "json",
+        # )
         generated_config_dir=os.path.join(
-            '~/', 'tmp/autogen_configs/ril', algo_name, args.env, args.mod, args.name, curr_time, "json",
+            './autogen_configs/ril', algo_name, args.env, args.mod, args.name, curr_time, "json",
         )
 
     generator = HyperparamUtils.ConfigGenerator(

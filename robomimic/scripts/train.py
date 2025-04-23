@@ -58,7 +58,7 @@ def train(config, device, eval_only=False):
     print("\n============= New Training Run with Config =============")
     print(config)
     print("")
-    log_dir, ckpt_dir, video_dir, vis_dir = TrainUtils.get_exp_dir(config)
+    log_dir, ckpt_dir, video_dir, vis_dir = TrainUtils.get_exp_dir(config, auto_remove_exp_dir=not config.experiment.get("resume", False))
 
     if config.experiment.logging.terminal_output_to_txt:
         # log stdout and stderr to a text file
@@ -73,6 +73,9 @@ def train(config, device, eval_only=False):
     env_meta_list = []
     shape_meta_list = []
     for dataset_cfg in config.train.data:
+
+        print(f"{dataset_cfg['path']=}")
+
         dataset_path = os.path.expanduser(dataset_cfg["path"])
         ds_format = config.train.data_format
         if not os.path.exists(dataset_path):
@@ -110,7 +113,8 @@ def train(config, device, eval_only=False):
     eval_env_horizon_list = []
     for (dataset_i, dataset_cfg) in enumerate(config.train.data):
         do_eval = dataset_cfg.get("do_eval", True)
-        if do_eval is not True:
+        is_eval = dataset_cfg.get("eval", True)
+        if do_eval is not True and is_eval is not True:
             continue
         eval_env_meta_list.append(env_meta_list[dataset_i])
         eval_shape_meta_list.append(shape_meta_list[dataset_i])
@@ -174,11 +178,25 @@ def train(config, device, eval_only=False):
         json.dump(config, outfile, indent=4)
 
     ckpt_path = config.experiment.ckpt_path
+    start_epoch = 0
+    
+    # Load checkpoint if provided
     if ckpt_path is not None and os.path.isfile(os.path.expanduser(ckpt_path)):
         print("LOADING MODEL WEIGHTS FROM " + ckpt_path)
         from robomimic.utils.file_utils import maybe_dict_from_checkpoint
         ckpt_dict = maybe_dict_from_checkpoint(ckpt_path=ckpt_path)
         model.deserialize(ckpt_dict["model"])
+
+        # If resume flag is set, also load optimizer state and epoch number
+        if config.experiment.get("resume", False):
+            print("RESUMING TRAINING FROM CHECKPOINT")
+            if "optimizer" in ckpt_dict:
+                model.optimizer.load_state_dict(ckpt_dict["optimizer"])
+                print("LOADED OPTIMIZER STATE")
+            
+            if "epoch" in ckpt_dict:
+                start_epoch = ckpt_dict["epoch"] + 1  # Start from the next epoch
+                print(f"RESUMING FROM EPOCH {start_epoch}")
 
     print("\n============= Model Summary =============")
     print(model)  # print model summary
@@ -249,7 +267,7 @@ def train(config, device, eval_only=False):
     train_num_steps = config.experiment.epoch_every_n_steps
     valid_num_steps = config.experiment.validation_epoch_every_n_steps
     
-    for epoch in range(0, config.train.num_epochs + 1): # epoch numbers start at 1        
+    for epoch in range(start_epoch, config.train.num_epochs + 1): # epoch numbers start at the resume point or 0        
         # if checkpoint directory is specified, load in new ckpt if exists
         ckpt_path = config.experiment.ckpt_path
         if ckpt_path is not None and os.path.isdir(os.path.expanduser(ckpt_path)):
@@ -426,6 +444,8 @@ def train(config, device, eval_only=False):
                 ckpt_path=os.path.join(ckpt_dir, epoch_ckpt_name + ".pth"),
                 obs_normalization_stats=obs_normalization_stats,
                 action_normalization_stats=action_normalization_stats,
+                epoch=epoch,  # Save current epoch number
+                optimizer_state=model.optimizer.state_dict() if hasattr(model, "optimizer") else None,  # Save optimizer state
             )
 
         # Finally, log memory usage in MB
@@ -471,12 +491,15 @@ def main(args):
         config.train.num_epochs = 2
 
         # if rollouts are enabled, try 2 rollouts at end of each epoch, with 10 environment steps
-        config.experiment.rollout.rate = 1
+        config.experiment.rollout.rate = 10
         config.experiment.rollout.n = 2
         config.experiment.rollout.horizon = 10
 
         # send output to a temporary directory
         config.train.output_dir = "/tmp/tmp_trained_models"
+
+        config.experiment.logging.log_wandb = False
+        config.experiment.logging.log_tb = False
 
     # lock config to prevent further modifications and ensure missing keys raise errors
     config.lock()
@@ -539,5 +562,20 @@ if __name__ == "__main__":
         help="disables training and only runs policy evaluation. config must include ckpt_path"
     )
 
+    # resume training
+    parser.add_argument(
+        "--resume",
+        action='store_true',
+        help="resume training from the checkpoint specified in ckpt_path"
+    )
+
     args = parser.parse_args()
+    
+    # Update config with resume flag if it's set in args
+    if args.resume and args.config is not None:
+        ext_cfg = json.load(open(args.config, 'r'))
+        ext_cfg["experiment"]["resume"] = True
+        with open(args.config, 'w') as f:
+            json.dump(ext_cfg, f, indent=4)
+            
     main(args)

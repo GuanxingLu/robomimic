@@ -24,6 +24,8 @@ from robomimic.macros import VISUALIZE_RANDOMIZER
 
 import torchvision.transforms.functional as TVF
 from torchvision.transforms import Lambda, Compose
+from pytorch3d.ops import sample_farthest_points as fps
+from collections import OrderedDict
 
 """
 ================================================
@@ -309,6 +311,103 @@ class VisualCoreLanguageConditioned(EncoderCore, BaseNets.ConvBase):
         msg = header + '(' + msg + '\n)'
         return msg
         
+class Splatt3rVisualCoreLanguageConditioned(EncoderCore):
+    """
+    Resnet18Conv backbone with another path of splatt3r model that generates gaussian splatting features
+    """
+    def __init__(
+        self,
+        input_shape=(3, 116, 116),
+        backbone_class="ResNet18Conv",
+        pool_class="SpatialSoftmax",
+        backbone_kwargs=None,
+        pool_kwargs=None,
+        flatten=True,
+        feature_dimension=64,
+    ):
+        import gaussianwm
+        from gaussianwm.processor.regressor import Splatt3rRegressor
+        from gaussianwm.encoder.pointnet_extractor import PointCloudEncoder
+        
+        super(Splatt3rVisualCoreLanguageConditioned, self).__init__(input_shape=input_shape)
+
+        self.feature_dimension = feature_dimension
+        self.splatt3r = Splatt3rRegressor()
+
+        self.gaussian_feature_to_dim = OrderedDict({
+                'means': 3,
+                'means_in_other_view': 3,
+                # 'covariances': 9,
+                'scales': 3,
+                'rotations': 4,
+                'sh': 3,
+                'opacities': 1,
+                # 'desc': 24,
+                # 'desc_conf': 1,
+            })
+        self.gaussian_feature_dim = 14
+        self.aligner = PointCloudEncoder(
+            out_channels=feature_dimension,
+            in_channels=self.gaussian_feature_dim,
+            use_layernorm=False,
+            final_norm='none',
+            use_projection=True,
+        )
+
+        # freeze splatt3r model
+        for param in self.splatt3r.parameters():
+            param.requires_grad = False
+
+    def output_shape(self, input_shape):
+        """
+        Function to compute output shape from inputs to this module. 
+
+        Args:
+            input_shape (iterable of int): shape of input. Does not include batch dimension.
+                Some modules may not need this argument, if their output does not depend 
+                on the size of the input, or if they assume fixed size input.
+
+        Returns:
+            out_shape ([int]): list of integers corresponding to output shape
+        """
+        if self.feature_dimension is not None:  # 64
+            # linear output
+            return [self.feature_dimension]
+        else:
+            raise NotImplementedError
+
+    def forward(self, left_img, right_img, lang_emb=None, stereo_splatt3r_feat=None):
+        """
+        """
+        B, C, H, W = left_img.shape # e.g., [160, 3, 128, 128]
+        with torch.no_grad():
+            pred_1, pred_2 = self.splatt3r(left_img, right_img)   # left and right outputs
+        
+        def get_gaussain_tensor(pred):
+            return torch.cat(
+                [pred[key].reshape(B, -1, value) for key, value in self.gaussian_feature_to_dim.items() if key in pred], 
+                dim=2)
+
+        # Concatenate the features
+        gaussain_tensor_1 = get_gaussain_tensor(pred_1) # (B, N, D), e.g., (160, 16384, 14)
+        gaussain_tensor_2 = get_gaussain_tensor(pred_2) # (B, N, D), e.g., (160, 16384, 14)
+
+        K = 1024
+    
+        # flatten the pts3d to (B, N, 3)
+        gaussain_tensor = torch.cat([gaussain_tensor_1, gaussain_tensor_2], dim=1)  # (B, 2N, D), e.g., (160, 32768, 14)
+        _, sampled_indices = fps(gaussain_tensor[..., :3], K=K)  # (B, K), e.g., (160, 1024)
+        sampled_gaussain_tensor = torch.gather(
+            gaussain_tensor, 
+            dim=1, 
+            index=sampled_indices.unsqueeze(-1).expand(-1, -1, gaussain_tensor.shape[-1])
+        )  # (B, K, D), e.g., (160, 1024, 14)
+
+        x = self.aligner(sampled_gaussain_tensor)  # Shape: (B, D), e.g., (160, 64)
+
+        return x
+
+
 """
 ================================================
 Scan Core Networks (Conv1D Sequential + Pool)

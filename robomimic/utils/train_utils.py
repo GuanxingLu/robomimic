@@ -701,46 +701,45 @@ def should_save_from_rollout_logs(
     )
 
 
-def save_model(model, config, env_meta, shape_meta, ckpt_path, obs_normalization_stats=None, action_normalization_stats=None):
+def save_model(model, config, env_meta, shape_meta, ckpt_path, obs_normalization_stats=None, action_normalization_stats=None, epoch=None, optimizer_state=None):
     """
-    Save model to a torch pth file.
-
+    Save model to a checkpoint path.
+    
     Args:
-        model (Algo instance): model to save
-
-        config (BaseConfig instance): config to save
-
-        env_meta (dict): env metadata for this training run
-
-        shape_meta (dict): shape metdata for this training run
-
-        ckpt_path (str): writes model checkpoint to this path
-
-        obs_normalization_stats (dict): optionally pass a dictionary for observation
-            normalization. This should map observation keys to dicts
-            with a "mean" and "std" of shape (1, ...) where ... is the default
-            shape for the observation.
-
-        action_normalization_stats (dict): TODO
+        model (Algo instance): algorithm to be saved
+        config (BaseConfig instance): config to be saved
+        env_meta (dict): environment metadata, which includes information like
+            environment name, observation and action dimensions, etc.
+        shape_meta (dict): shape metadata, which includes info on the observation
+            and action shapes
+        ckpt_path (str): path to save checkpoint
+        obs_normalization_stats (dict): optionally pass stats used for observation
+            normalization
+        action_normalization_stats (dict): optionally pass stats used for action
+            normalization
+        epoch (int): optionally save current epoch for resume capability
+        optimizer_state (dict): optionally save optimizer state for resume capability
     """
-    env_meta = deepcopy(env_meta)
-    shape_meta = deepcopy(shape_meta)
-    params = dict(
+    save_dict = dict(
         model=model.serialize(),
-        config=config.dump(),
-        algo_name=config.algo_name,
-        env_metadata=env_meta,
-        shape_metadata=shape_meta,
+        config=config,
+        env_meta=env_meta,
+        shape_meta=shape_meta,
+        algo_name=config.algo_name
     )
     if obs_normalization_stats is not None:
-        assert config.train.hdf5_normalize_obs
-        obs_normalization_stats = deepcopy(obs_normalization_stats)
-        params["obs_normalization_stats"] = TensorUtils.to_list(obs_normalization_stats)
+        save_dict["obs_normalization_stats"] = obs_normalization_stats
     if action_normalization_stats is not None:
-        action_normalization_stats = deepcopy(action_normalization_stats)
-        params["action_normalization_stats"] = TensorUtils.to_list(action_normalization_stats)
-    torch.save(params, ckpt_path)
-    print("save checkpoint to {}".format(ckpt_path))
+        save_dict["action_normalization_stats"] = action_normalization_stats
+    if epoch is not None:
+        save_dict["epoch"] = epoch
+    if optimizer_state is not None:
+        save_dict["optimizer"] = optimizer_state
+    
+    # create directory if it doesn't exist
+    os.makedirs(os.path.dirname(ckpt_path), exist_ok=True)
+    torch.save(save_dict, ckpt_path)
+    print("Saved checkpoint to {}".format(ckpt_path))
 
 
 def run_epoch(model, data_loader, epoch, validate=False, num_steps=None, obs_normalization_stats=None):

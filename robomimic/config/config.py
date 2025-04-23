@@ -201,10 +201,11 @@ class Config(dict):
 
     def __setitem__(self, name, value):
         super(Config, self).__setitem__(name, value)
-        p = object.__getattribute__(self, '__parent')
-        key = object.__getattribute__(self, '__key')
-        if p is not None:
-            p[key] = self
+        if hasattr(self, '__parent'):
+            p = object.__getattribute__(self, '__parent')
+            key = object.__getattribute__(self, '__key')
+            if p is not None:
+                p[key] = self
 
     def __add__(self, other):
         if not self.keys():
@@ -233,6 +234,8 @@ class Config(dict):
 
     def __getitem__(self, name):
         if name not in self:
+            # print(name)
+            # if hasattr(self, '__all_locked') or hasattr(self, '__key_locked'):
             if object.__getattribute__(self, '__all_locked') or object.__getattribute__(self, '__key_locked'):
                  raise RuntimeError("This config has been locked and '{}' is not in this config".format(name))
             return Config(__parent=self, __key=name)
@@ -294,6 +297,13 @@ class Config(dict):
         return self
 
     def __setstate__(self, state):
+        # Initialize attributes before calling update
+        object.__setattr__(self, '__key_locked', False)
+        object.__setattr__(self, '__all_locked', False)
+        object.__setattr__(self, '__do_not_lock_keys', False)
+        object.__setattr__(self, '__parent', None)
+        object.__setattr__(self, '__key', None)
+        # Now update with the state
         self.update(state)
 
     def setdefault(self, key, default=None):
